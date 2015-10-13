@@ -1,0 +1,72 @@
+* Get Linux with Docker
+The following tutorial was tested with Ubuntu 14.04-amd64 running as VM in VirtualBox. The VM was installed through Vagrant from [[https://github.com/phusion/open-vagrant-boxes][phusion Vagrant box]]. To get this image install Vagrant and run:
+: vagrant init phusion/ubuntu-14.04-amd64
+
+It is also useful to have `brctl` utility that is a part of `bridge-utils` package. To install it run:
+: sudo apt-get install bridge-utils
+
+
+* Build and run Docker image with Leviathan
+: docker run -v /run:/run -v /var:/host/var -v /proc:/host/proc --net=host --privileged=true -i -t ivanos/leviathan:rel-0.8.1
+Leviathan rest API should be accessible on http://localhost:8080.
+Leviathan network visualizer should be accessible on http://localhost:8080/static/www/index.html
+
+Note, that if you are running Leviathan inside a VM, and want to access the visualizer from the host, a host port has to be mapped to 8080 guest port.For example putting the following lines into the Vagrant file works:
+: config.vm.network "forwarded_port", guest: 8080, host: 8080
+
+
+* Build two networks from 3 Docker containers with Leviathan
+All the commands are run from the host OS.
+
+1. Start 3 Docker containers ("cont{1,2,3}") that run a Bash process. The containers has to be started without networking enabled:
+   : for i in `seq 1 3`; do sudo docker run --net=none -d -i --name cont$i ubuntu:14.04 /bin/bash; done
+2. Create a JSON file describing the networks to be created by Leviathan
+   #+BEGIN_SRC 
+   {
+    "cenList": [
+        {
+            "cenID": "cen1",
+            "containerIDs": [
+                "cont1",
+                "cont2"
+            ]
+        },
+        {
+            "cenID": "cen2",
+            "containerIDs": [
+                "cont2",
+                "cont3"
+            ]
+        }
+    ]
+   }
+   #+END_SRC
+   /CEN/ is the Container Ethernet Network. The file describes two such networks, with 2 containers each. One of the containers - /cont2/ is a member of two networks.
+3. Load the JSON file describing the /CENs/ into Leviathan through its REST API:
+   : curl -d @/vagrant/cen.json http://localhost:8080/cin
+   The /CIN/ endpoint stands for Container IP Network. Running this command builds internal model for /CENs/ and create two Linux Bridges in the host OS: /cen1/ and /cen2/. See the bridges:
+   : ip a
+   For now, the bridges has no interfaces:
+   : brctl show
+4. Display /cont2/ in the visualizer:
+   1) Open http://localhost:8080/static/www/index.html an type in "lev_cont>host1>cont2" in the pop-up window. A node with that name will appear.
+   2) Double-click on it, 4 nodes will appear. Two of them represent the container interfaces belonging to 2 different /CENs/:
+      - /lev_endpoint>host1>cont2.0i/
+      - /lev_endpoint>host1>cont2.1i/
+      The "i" at the end of these name indicate that they are *inside* the container.
+   3) Double-click on /lev_endpoint>host1>cont2.0i/ - that will show an IP address for that interface as well another interface: /lev_endpoint>host1>cont2.0o/. This time the interface ends with "o" which indicates an interface "outside the container" - i.e. on the host machines. This is the other end of the /veth interfaces pair/ that consist of those two interfaces: *inside* and *outside*.
+   4) Double-click on the outside interface - it reveals a node for a bridge.
+5. Look at the Containers networking configuration
+   : sudo docker exec cont2 ip addr show
+   It has only loopback interface configured.
+6. Create the actual networking components on the host machine that will wire the containers according to the configuration provided in the JSON file:
+   : curl -d '["cen1","cen2"]' http://localhost:8080/cin/prepare
+   leviathan logs show subsequent commands that are applied to the host OS as well containers.
+7. Examine the containers networking and the bridges again:
+   : sudo docker exec cont2 ip addr show
+   : sudo docker exec cont1 ip addr show
+   : brctl show
+   Not that now there are interfaces named after /CENs/ in the containers. Not also that ther are interfces attached to bridges that corresponds with the nodes on the graph.
+8. Try to ping two containers within the same cen.
+   By invoking the commands from the previous point, note the containers intefaces IPs that are on the same subnetowrk. Then run the ping command:
+   : sudo docker exec ping 10.7.0.10 # pings cont1 from con2
