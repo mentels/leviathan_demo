@@ -1,0 +1,12 @@
+{"cpoolList":
+ [
+     {"cpoolID":"pool1",
+      "type":"ubuntu:14.04",
+      "start_with": 3,
+      "cins":[{"cinID":"cen1","default_route":"true"}]},
+     {"cpoolID":"pool2",
+      "type":"ubuntu:14.04",
+      "start_with": 3,
+      "cins":[{"cinID":"cen2"}]}
+ ]
+}
