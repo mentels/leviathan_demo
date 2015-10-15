@@ -23,6 +23,7 @@ All the commands are run from the host OS.
 
 1. Start 3 Docker containers ("cont{1,2,3}") that run a Bash process. The containers has to be started without networking enabled:
    : for i in `seq 1 3`; do docker run --net=none -d -i --name cont$i ubuntu:14.04 /bin/bash; done
+
 2. Create a JSON file describing the networks to be created by Leviathan
    #+BEGIN_SRC 
    {
@@ -44,10 +45,14 @@ All the commands are run from the host OS.
     ]
    }
    #+END_SRC
+
    /CEN/ is the Container Ethernet Network. The file describes two such networks, with 2 containers each. One of the containers - /cont2/ is a member of two networks.
+
 3. Load the JSON file describing the /CENs/ into Leviathan through its REST API:
    : curl -d @/vagrant/cen.json http://localhost:8080/cin
+   
    The /CIN/ endpoint stands for Container IP Network. Running this command builds internal model for /CENs/.
+
 4. Display /cont2/ in the visualizer:
    1) Open http://localhost:8080/static/www/index.html an type in "lev_cont>host1>cont2" in the pop-up window. A node with that name will appear.
    2) Double-click on it, 4 nodes will appear. Two of them represent the container interfaces belonging to 2 different /CENs/:
@@ -56,41 +61,51 @@ All the commands are run from the host OS.
       The "i" at the end of these name indicate that they are *inside* the container.
    3) Double-click on /lev_endpoint>host1>cont2.0i/ - that will show an IP address for that interface as well another interface: /lev_endpoint>host1>cont2.0o/. This time the interface ends with "o" which indicates an interface "outside the container" - i.e. on the host machines. This is the other end of the /veth interfaces pair/ that consist of those two interfaces: *inside* and *outside*.
    4) Double-click on the outside interface - it reveals a node for a bridge.
+
 5. Look at the Containers networking configuration and the host OS networking configuration:
-   : docker exec cont2 ip addr show
+   : docker exec cont2 ip a
    It has only loopback interface configured.
    : ip a
    There are no bridges.
+
 6. Create the actual networking components on the host machine that will wire the containers according to the configuration provided in the JSON file:
    : curl -d '["cen1","cen2"]' http://localhost:8080/cin/prepare
    leviathan logs show subsequent commands that are applied to the host OS as well containers.
+
 7. Examine the containers and the OS networking:
-   : docker exec cont2 ip addr show
-   : docker exec cont1 ip addr show
-   : ip a
-   : brctl show
+   #+BEGIN_SRC 
+   docker exec cont2 ip addr show
+   docker exec cont1 ip addr show
+   ip a
+   brctl show
+   #+END_SRC
+
    Not that now there are interfaces named after /CENs/ in the containers. Note also that ther are interfces attached to bridges that corresponds with the nodes on the graph.
+
 8. Try to ping two containers within the same cen.
    By invoking the commands from the previous point, note down the containers intefaces IPs that are on the same subnetowrk. Then run the ping command:
-   : docker exec ping 10.10.0.10 # pings cont1 from con2
+   : docker exec cont1 ping 10.10.0.10 # pings cont1 from con2
+
 9. Remove the networking components from the host machine and running containers:
-  : curl -d '["cen1","cen2"]' http://localhost:8080/cin/destroy
+   : curl -d '["cen1","cen2"]' http://localhost:8080/cin/destroy
+
 10. Clear all the data about CENs stored in leviathan:
     : curl http://localhost:8080/util/clear
+
 11. Stop and remove the containers
     : for i in `seq 1 3`; do docker rm -f cont$i; done
 
 
 * Build Docker image for LINC-Switch
-To complete the next parf of the tutorial when we will be swtiching traffic between two CENs, an image with LINC-Switch is required. The Docker file for this image can be found [[https://github.com/ivanos/dockerfiles/tree/linc-dockerfile/linc][here]]. To build the image run:
+To complete the next parf of the tutorial, in which we will be swtiching traffic between two CINs, an image with LINC-Switch is required. The Docker file for this image can be found [[https://github.com/ivanos/dockerfiles/tree/linc-dockerfile/linc][here]]. To build the image run:
 #+BEGIN_SRC 
 git clone https://github.com/ivanos/dockerfiles && cd dockerfiles/linc
-docker build -t linc/local .
+docker build -t local/linc .
 #+END_SRC
-The /linc/local/ is an image name that Leviathan will look for when trying to start a switch.
+The /local/linc/ is an image name that Leviathan will look for when trying to start a switch.
 
 
-* Create 2 docker containers networks with routing using Leviathan (IN PROGRESS)
+* Create 2 docker containers networks with routing using Leviathan
 1. Run the container with Leviathan as described in one of the previous steps.
 2. Create a JSON file describing two collections of CINs (/CPOOLs/) -  /cpool.json/:
    #+BEGIN_SRC json
@@ -110,3 +125,21 @@ The /linc/local/ is an image name that Leviathan will look for when trying to st
    The above listing decribes 2 CIN pools with 3 containers each.
 3. Load the JSON file into Leviathan through the REST API:
    : curl -d @/vagrant/cpool.json http://localhost:8080/cpool
+4. The above command should result in starting 6 containers from /ubuntu:14.04/ images and wiring them appropriately. Check they are really running by displaying 6 recently started containers:
+   : docker ps -n 6
+   To verify that the containers got wird you can run the below command and see if appropriate interfaces are configured:
+   : for i in `docker ps -n 6 -q`; do docker exec $i ip a; done
+5. Tell Leviathan to start the container with LINC-Switch
+   #+BEGIN_SRC 
+   leviathan_switch:import_json(
+      #{<<"type">> => <<"local/linc">>,
+        <<"interfaces">> => [<<"cen1">>, <<"cen2">>]}).
+   #+END_SRC
+6. Take two container from different CENs and try to ping them.
+   Containters that are in different CENs has different IPs assigned. The ping should not pass.
+7. Install a path between the two containers
+   #+BEGIN_SRC 
+   flowcompiler:setup_flow(<<"lev_cont>host1>4310ff47b15c">>, <<"lev_cont>host1>ebd35c83d557">>).
+   #+END_SRC
+   Now the ping should work.
+
