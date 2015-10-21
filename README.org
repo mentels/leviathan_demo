@@ -90,7 +90,8 @@ All the commands are run from the host OS.
    : curl -d '["cen1","cen2"]' http://localhost:8080/cin/destroy
 
 10. Clear all the data about CENs stored in leviathan:
-    : curl http://localhost:8080/util/clear
+    : curl http://localhost:8080/util/clear 
+    : leviathan_db:clear() % from Erlang shell
 
 11. Stop and remove the containers
     : for i in `seq 1 3`; do docker rm -f cont$i; done
@@ -107,6 +108,7 @@ The /local/linc/ is an image name that Leviathan will look for when trying to st
 
 * Create 2 docker containers networks with routing using Leviathan
 1. Run the container with Leviathan as described in one of the previous steps.
+
 2. Create a JSON file describing two collections of CINs (/CPOOLs/) -  /cpool.json/:
    #+BEGIN_SRC json
     {"cpoolList":
@@ -123,23 +125,37 @@ The /local/linc/ is an image name that Leviathan will look for when trying to st
    }
    #+END_SRC
    The above listing decribes 2 CIN pools with 3 containers each.
+
 3. Load the JSON file into Leviathan through the REST API:
    : curl -d @/vagrant/cpool.json http://localhost:8080/cpool
-4. The above command should result in starting 6 containers from /ubuntu:14.04/ images and wiring them appropriately. Check they are really running by displaying 6 recently started containers:
+
+4. The above command should result in starting 6 containers from /ubuntu:14.04/ image and wiring them appropriately. Check they are really running by displaying 6 recently started containers:
    : docker ps -n 6
-   To verify that the containers got wird you can run the below command and see if appropriate interfaces are configured:
+   To verify that the containers got wired you can run the below command and see if appropriate interfaces are configured:
    : for i in `docker ps -n 6 -q`; do docker exec $i ip a; done
+   Pining hosts withing a CEN should work.
+
 5. Tell Leviathan to start the container with LINC-Switch
    #+BEGIN_SRC 
    leviathan_switch:import_json(
       #{<<"type">> => <<"local/linc">>,
         <<"interfaces">> => [<<"cen1">>, <<"cen2">>]}).
    #+END_SRC
-6. Take two container from different CENs and try to ping them.
+
+6. Take two containers from different CENs and try to ping them.
    Containters that are in different CENs has different IPs assigned. The ping should not pass.
+
 7. Install a path between the two containers
    #+BEGIN_SRC 
    flowcompiler:setup_flow(<<"lev_cont>host1>4310ff47b15c">>, <<"lev_cont>host1>ebd35c83d557">>).
    #+END_SRC
    Now the ping should work.
+
+8. Destrony CINs and clear things up
+   #+BEGIN_SRC 
+   curl -d '["cen1","cen2"]' http://localhost:8080/cin/destroy
+   curl http://localhost:8080/util/clear 
+   for c in `docker ps -n 7 -q`; do docker rm -f $c; done
+   leviathan_db:clear(). % from Erlang shell
+   #+END_SRC
 
